@@ -72,15 +72,18 @@ def _parse_pdf_marker(path: Path) -> tuple[str, str]:
             raise FileNotFoundError("marker_single not found on PATH")
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            proc = subprocess.Popen(
+                [marker_bin, str(path), "--output_dir", tmpdir],
+                stderr=subprocess.PIPE, text=True,
+            )
             try:
-                result = subprocess.run(
-                    [marker_bin, str(path), "--output_dir", tmpdir],
-                    capture_output=True, text=True, timeout=600,
-                )
+                _, stderr = proc.communicate(timeout=900)
             except subprocess.TimeoutExpired:
-                raise RuntimeError("marker timed out after 600s")
-            if result.returncode != 0:
-                raise RuntimeError(f"marker failed: {result.stderr[:500]}")
+                proc.kill()
+                proc.communicate()
+                raise RuntimeError("marker timed out after 900s")
+            if proc.returncode != 0:
+                raise RuntimeError(f"marker failed: {stderr[:500]}")
 
             # Marker outputs to a subdirectory named after the PDF
             md_files = list(Path(tmpdir).rglob("*.md"))
