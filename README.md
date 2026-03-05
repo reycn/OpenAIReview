@@ -2,7 +2,9 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/openaireview.svg)](https://pypi.org/project/openaireview/)
 
-AI-powered academic paper reviewer that detects technical and logical errors using LLMs.
+Our goal is provide thorough and detailed reviews to help researchers conduct the best research. See more examples [here](https://openaireview.github.io/).
+
+![Example](assets/example.png)
 
 ## Installation
 
@@ -49,7 +51,7 @@ Then review a paper and visualize results:
 openaireview review paper.pdf
 
 # Or review directly from an arXiv URL
-openaireview review https://arxiv.org/html/2310.06825
+openaireview review https://arxiv.org/html/2602.18458v1
 
 # Visualize results
 openaireview serve
