@@ -79,7 +79,7 @@ Then in any Claude Code project:
 ```
 
 Finally, run `openaireview serve` to see results.
-```
+
 
 ## CLI Reference
 
