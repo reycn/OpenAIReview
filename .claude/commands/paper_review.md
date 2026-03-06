@@ -12,16 +12,16 @@ Review the academic paper provided in the user's message. Follow every step belo
 
 ## Step 0 — Create a task list to track progress
 
-If a todo list or task tracking tool is available (e.g. TaskCreate, todo_write, or equivalent), create the following tasks before doing anything else:
+If a todo list or task tracking tool is available (e.g. TaskCreate, todo_write, or equivalent), create the following top-level tasks before doing anything else:
 
 1. "Obtain paper text" — fetch and parse the paper
 2. "Pass A: Understand the paper" — build a complete mental model
-3. "Pass B: Check for issues" — find technical and logical errors
+3. "Pass B: Check for issues" — fine-grained per-section checks (sub-tasks added after Pass A)
 4. "Consolidate findings" — remove duplicates and false positives
 5. "Present review" — output the formatted review to the user
 6. "Save viz JSON" — write results to review_results/<slug>.json
 
-Mark each task as in-progress when you start it and completed when done before moving to the next step. If no such tool is available, skip this step and proceed.
+Mark each task as in-progress when you start it and completed when done. Note that Pass B will be expanded into per-section sub-tasks after Pass A — the top-level "Pass B" task is completed only once all sub-tasks are done. If no tracking tool is available, skip this step and proceed.
 
 ---
 
@@ -46,7 +46,7 @@ Determine the input type from the argument and extract the text:
 
   **If the output is being extracted via pymupdf** (you'll see the warning "Marker not available"), scan the extracted text for an arXiv ID (pattern `arXiv:\d{4}\.\d{4,5}` or `arxiv.org/abs/`). If found, re-fetch from `https://arxiv.org/html/<id>` using WebFetch for much better structure and math rendering.
 - **arXiv HTML URL** (`arxiv.org/html/...`) — Use WebFetch.
-- **arXiv abs URL** (`arxiv.org/abs/<id>`) — Replace `/abs/` with `/html/` and use WebFetch. If the HTML version is unavailable, try `arxiv.org/pdf/<id>` and download/parse the PDF.
+- **arXiv abs URL** (`arxiv.org/abs/<id>`) — Replace `/abs/` with `/html/` and use WebFetch. If the HTML version returns an error or is unavailable, fall back: download `https://arxiv.org/pdf/<id>` with curl and parse it as a PDF using the steps above.
 
 Identify the paper **title** and a **slug** (URL-friendly name derived from the filename stem or arXiv ID, lowercase, hyphens only, max 80 chars).
 
@@ -56,28 +56,32 @@ If tracking tasks, mark "Obtain paper text" as completed.
 
 ## Step 2 — Review the paper
 
-If tracking tasks, mark "Pass A: Understand the paper" as in-progress.
-
 You are a thoughtful, expert reviewer. Work in two passes:
 
-**Pass A — Understand the paper.** Read through the **full text including all appendices and tables**. Note (mentally, no output needed):
+### Pass A — Understand the paper
+
+If tracking tasks, mark "Pass A: Understand the paper" as in-progress.
+
+Read through the **full text including all appendices and tables**. Note (mentally, no output needed):
 - For math-heavy papers: every symbol and its definition, every key equation, every theorem/proposition statement, every stated assumption, and every numerical parameter.
 - For empirical/systems papers: every stated numerical threshold or hyperparameter, every experimental design choice, every component mentioned in the system description, every aggregate statistic and what it includes/excludes, and every claim made in the abstract and introduction.
 - Build a complete picture before judging anything.
 
 If tracking tasks, mark "Pass A: Understand the paper" as completed.
 
-After Pass A, if a task tracking tool is available, create one sub-task per major section or area that warrants focused checking based on what you learned about the paper. Use your judgement — the goal is to have a task for each distinct region you will actively scrutinize in Pass B. Examples:
+**After Pass A — expand Pass B into sub-tasks.** If a task tracking tool is available, create one sub-task per major section or area that warrants focused checking, based on what you just learned about the paper. Use your judgement — each sub-task should correspond to a distinct region you will actively scrutinize. Examples:
 
-- For a math-heavy paper: one task per theorem, proof, or key equation block
-- For an empirical paper: one task per experiment, table, or aggregate statistic
-- Always include tasks for: Abstract & Introduction claims, Methods / Formal definitions, Results & Tables, and Appendices (if present)
+- Math-heavy paper: one task per theorem, proof, or key equation block
+- Empirical paper: one task per experiment, table, or aggregate statistic
+- Always include: Abstract & Introduction claims, Methods / Formal definitions, Results & Tables, Appendices (if present)
 
-Name each sub-task descriptively (e.g. "Check Table 3 failure-rate numbers", "Check Theorem 2 proof", "Check abstract claims vs. Section 4 results"). Mark each sub-task in-progress as you check that section, and completed when done. This gives fine-grained progress visibility through the paper.
+Name sub-tasks descriptively (e.g. "Check Table 3 failure-rate numbers", "Check Theorem 2 proof", "Check abstract claims vs. Section 4 results"). As you work through Pass B, mark each sub-task in-progress when you start that section and completed when done.
+
+### Pass B — Check for issues
 
 If tracking tasks, mark "Pass B: Check for issues" as in-progress.
 
-**Pass B — Check for issues.** Work through the paper in reading order, **including appendices and tables**. For every claim, formula, definition, proof step, and stated parameter: first try to understand the authors' intent and check whether your concern is resolved by context before flagging it.
+Work through the paper in reading order, **including appendices and tables**, checking each sub-task area in turn. For every claim, formula, definition, proof step, and stated parameter: first try to understand the authors' intent and check whether your concern is resolved by context before flagging it.
 
 ### What to check
 
@@ -117,7 +121,7 @@ Acknowledge what the authors got right before noting the issue. Reference standa
 
 ## Step 3 — Consolidate your findings
 
-If tracking tasks, mark "Pass B: Check for issues" as completed and "Consolidate findings" as in-progress.
+If tracking tasks, mark any remaining Pass B sub-tasks as completed, then mark "Pass B: Check for issues" as completed and "Consolidate findings" as in-progress.
 
 Before outputting anything, review your own issue list:
 
