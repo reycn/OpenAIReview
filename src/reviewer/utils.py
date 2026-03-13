@@ -12,8 +12,11 @@ from .models import Comment
 def count_tokens(text: str, model: str = "gpt-4o") -> int:
     try:
         enc = tiktoken.encoding_for_model(model)
-    except KeyError:
-        enc = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            return len(text) // 4
     return len(enc.encode(text))
 
 
@@ -62,6 +65,18 @@ def split_into_paragraphs(text: str, min_chars: int = 100) -> list[str]:
     return paragraphs
 
 
+def _normalize_for_match(text: str) -> str:
+    """Normalize extracted text for quote-to-paragraph matching."""
+    text = text.lower()
+    text = text.replace("<br>", " ")
+    text = text.replace("|", " ")
+    text = text.replace("*", "")
+    text = text.replace("_", "")
+    text = text.replace("’", "'")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def locate_comment_in_document(
     quote: str,
     paragraphs: list[str],
@@ -75,16 +90,30 @@ def locate_comment_in_document(
     if not quote or not paragraphs:
         return None
 
-    quote_lower = quote.lower().strip()[:500]
+    quote_norm = _normalize_for_match(quote)[:1000]
     best_idx = None
     best_score = 0.0
 
     for i, para in enumerate(paragraphs):
-        para_lower = para.lower().strip()
+        para_norm = _normalize_for_match(para)
         # Fast exact-substring check first
-        if quote_lower[:80] in para_lower:
+        if quote_norm and quote_norm in para_norm:
             return i
-        score = SequenceMatcher(None, quote_lower, para_lower[:600]).ratio()
+
+        # Compare against sliding windows so long table-like paragraphs still match.
+        if len(para_norm) <= len(quote_norm) + 200:
+            windows = [para_norm]
+        else:
+            window_size = min(len(para_norm), max(len(quote_norm) + 200, 400))
+            step = max(window_size // 2, 100)
+            windows = [
+                para_norm[start : start + window_size]
+                for start in range(0, len(para_norm) - window_size + 1, step)
+            ]
+            if (len(para_norm) - window_size) % step:
+                windows.append(para_norm[-window_size:])
+
+        score = max(SequenceMatcher(None, quote_norm, window).ratio() for window in windows)
         if score > best_score:
             best_score = score
             best_idx = i
