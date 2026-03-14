@@ -167,3 +167,24 @@ def test_parse_review_response_markdown_fenced():
 def test_parse_review_response_empty():
     feedback, comments = parse_review_response("No JSON here at all.")
     assert comments == []
+
+
+def test_parse_review_response_salvages_malformed_jsonish_output():
+    response = """```json
+{
+  "overall_feedback": "Good paper overall.",
+  "comments": [
+    {
+      "title": "Quoted phrase breaks strict JSON",
+      "quote": "the [n] "setting-sun" diagram",
+      "explanation": "Still a valid review comment.",
+      "type": "technical"
+    }
+  ]
+}
+```"""
+    feedback, comments = parse_review_response(response)
+    assert feedback == "Good paper overall."
+    assert len(comments) == 1
+    assert comments[0].title == "Quoted phrase breaks strict JSON"
+    assert comments[0].quote == 'the [n] "setting-sun" diagram'

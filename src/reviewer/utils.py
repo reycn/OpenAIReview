@@ -163,6 +163,61 @@ def parse_comments_from_list(items: list[dict]) -> list[Comment]:
     return comments
 
 
+def _decode_jsonish_string(value: str) -> str:
+    """Best-effort decode of a JSON-style string fragment."""
+    def _unicode_repl(match):
+        try:
+            return chr(int(match.group(1), 16))
+        except ValueError:
+            return match.group(0)
+
+    value = re.sub(r"\\u([0-9a-fA-F]{4})", _unicode_repl, value)
+    value = value.replace(r"\/", "/")
+    value = value.replace(r"\"",
+                          "\"")
+    value = value.replace(r"\n", "\n")
+    value = value.replace(r"\r", "\r")
+    value = value.replace(r"\t", "\t")
+    value = value.replace(r"\\", "\\")
+    return value
+
+
+def _extract_overall_feedback_fallback(text: str) -> str:
+    """Recover overall_feedback from malformed JSON-ish output."""
+    match = re.search(
+        r'"overall_feedback"\s*:\s*"(?P<value>.*?)"\s*,\s*"comments"\s*:',
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return ""
+    return _decode_jsonish_string(match.group("value")).strip()
+
+
+def _extract_comments_fallback(text: str) -> list[Comment]:
+    """Recover comment objects from malformed JSON-ish output.
+
+    This is intentionally schema-specific and only targets the comment shape
+    emitted by our prompts: title, quote, explanation, type.
+    """
+    pattern = re.compile(
+        r'\{\s*"title"\s*:\s*"(?P<title>.*?)"\s*,\s*'
+        r'"quote"\s*:\s*"(?P<quote>.*?)"\s*,\s*'
+        r'"explanation"\s*:\s*"(?P<explanation>.*?)"\s*,\s*'
+        r'"type"\s*:\s*"(?P<type>technical|logical)"\s*\}',
+        re.DOTALL,
+    )
+    items = []
+    for match in pattern.finditer(text):
+        items.append({
+            "title": _decode_jsonish_string(match.group("title")).strip(),
+            "quote": _decode_jsonish_string(match.group("quote")).strip(),
+            "explanation": _decode_jsonish_string(match.group("explanation")).strip(),
+            "type": match.group("type").strip(),
+        })
+    return parse_comments_from_list(items)
+
+
 def parse_review_response(response: str) -> tuple[str, list[Comment]]:
     """Parse LLM response returning (overall_feedback, comments).
 
@@ -178,17 +233,27 @@ def parse_review_response(response: str) -> tuple[str, list[Comment]]:
     text = text.strip()
 
     decoder = json.JSONDecoder()
-    # Scan for the first '[' or '{' and try to parse from there
+    obj = None
+    # Scan for the first parseable top-level object/array
     for i, ch in enumerate(text):
         if ch in ("{", "["):
             try:
-                obj, _ = decoder.raw_decode(text, i)
-                break
+                candidate, _ = decoder.raw_decode(text, i)
             except json.JSONDecodeError:
                 continue
+            if isinstance(candidate, list):
+                if not candidate or isinstance(candidate[0], dict):
+                    obj = candidate
+                    break
+                continue
+            if isinstance(candidate, dict) and (
+                "overall_feedback" in candidate or "comments" in candidate
+            ):
+                obj = candidate
+                break
     else:
         # Nothing parseable found
-        return "", []
+        return _extract_overall_feedback_fallback(text), _extract_comments_fallback(text)
 
     if isinstance(obj, dict):
         overall_feedback = obj.get("overall_feedback", "")
@@ -196,7 +261,7 @@ def parse_review_response(response: str) -> tuple[str, list[Comment]]:
         return overall_feedback, parse_comments_from_list(items)
     elif isinstance(obj, list):
         return "", parse_comments_from_list(obj)
-    return "", []
+    return _extract_overall_feedback_fallback(text), _extract_comments_fallback(text)
 
 
 def parse_comments_from_response(response: str) -> list[Comment]:
