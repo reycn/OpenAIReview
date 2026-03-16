@@ -52,9 +52,10 @@ def cmd_review(args: argparse.Namespace) -> None:
 
     source = args.file
     ocr = getattr(args, "ocr", None)
+    max_pages = getattr(args, "max_pages", None)
     if is_url(source):
         print(f"Fetching and parsing URL...")
-        title, content, was_ocr = parse_document(source, ocr=ocr)
+        title, content, was_ocr = parse_document(source, ocr=ocr, max_pages=max_pages)
         # Derive slug from URL: use the arxiv ID or last path segment
         default_slug = source.rstrip("/").split("/")[-1]
     else:
@@ -63,13 +64,22 @@ def cmd_review(args: argparse.Namespace) -> None:
             print(f"Error: file not found: {file_path}", file=sys.stderr)
             sys.exit(1)
         print(f"Parsing {file_path.name}...")
-        title, content, was_ocr = parse_document(file_path, ocr=ocr)
+        title, content, was_ocr = parse_document(file_path, ocr=ocr, max_pages=max_pages)
         fmt = file_path.suffix.lstrip(".").lower()
         default_slug = f"{file_path.stem}-{fmt}" if fmt else file_path.stem
         if fmt:
             title = f"{title} [{fmt.upper()}]"
 
     print(f"  Title: {title}")
+
+    # Truncate to max_tokens if specified
+    max_tokens = getattr(args, "max_tokens", None)
+    if max_tokens:
+        from .utils import count_tokens, truncate_text
+        token_count = count_tokens(content)
+        if token_count > max_tokens:
+            content = truncate_text(content, max_tokens)
+            print(f"  Truncated from {token_count} to {max_tokens} tokens")
 
     slug = args.name or slugify(default_slug)
     paragraphs = split_into_paragraphs(content)
@@ -297,6 +307,14 @@ def main() -> None:
         choices=["mistral", "deepseek", "marker", "pymupdf"],
         default=None,
         help="PDF OCR engine (default: auto -- tries mistral, deepseek, marker, pymupdf)",
+    )
+    review_parser.add_argument(
+        "--max-pages", type=int, default=None,
+        help="Only process the first N pages of a PDF (saves OCR cost)",
+    )
+    review_parser.add_argument(
+        "--max-tokens", type=int, default=None,
+        help="Truncate input text to first N tokens before review",
     )
 
     # extract subcommand

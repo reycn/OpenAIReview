@@ -19,10 +19,29 @@ def is_url(s: str) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
+def _truncate_pdf_pages(path: Path, max_pages: int) -> Path:
+    """Write a new PDF containing only the first max_pages pages. Returns the temp path."""
+    import tempfile
+    import pymupdf
+
+    doc = pymupdf.open(str(path))
+    if len(doc) <= max_pages:
+        doc.close()
+        return path
+    print(f"  Truncating PDF from {len(doc)} to {max_pages} pages")
+    doc.delete_pages(list(range(max_pages, len(doc))))
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    doc.save(tmp.name)
+    doc.close()
+    tmp.close()
+    return Path(tmp.name)
+
+
 def parse_document(
     file_path: str | Path,
     ocr: str | None = None,
     figures_dir: Path | None = None,
+    max_pages: int | None = None,
 ) -> tuple[str, str, bool]:
     """Parse a document file or URL and return (title, full_text, was_ocr).
 
@@ -51,7 +70,12 @@ def parse_document(
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
-        title, text, engine = _parse_pdf(path, ocr=ocr, figures_dir=figures_dir)
+        pdf_path = path
+        if max_pages:
+            pdf_path = _truncate_pdf_pages(path, max_pages)
+        title, text, engine = _parse_pdf(pdf_path, ocr=ocr, figures_dir=figures_dir)
+        if pdf_path != path:
+            pdf_path.unlink(missing_ok=True)
         # Post-process OCR output: fix notation errors
         from .ocr_postprocess import fix_ocr_notation
         text, corrections = fix_ocr_notation(text)

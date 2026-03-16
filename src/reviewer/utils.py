@@ -20,6 +20,16 @@ def count_tokens(text: str, model: str = "gpt-4o") -> int:
     return len(enc.encode(text))
 
 
+def truncate_text(text: str, max_tokens: int) -> str:
+    """Truncate text to at most max_tokens tokens."""
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return text[: max_tokens * 4]
+    tokens = enc.encode(text)[:max_tokens]
+    return enc.decode(tokens)
+
+
 def chunk_text(text: str, max_tokens: int = 6000, overlap_tokens: int = 200) -> list[str]:
     """Split text into chunks of at most max_tokens with overlap."""
     try:
