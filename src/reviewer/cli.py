@@ -125,15 +125,11 @@ def cmd_review(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{slug}.json"
 
-    # Append OCR disclaimer to saved output (not sent to LLM)
-    saved_paragraphs = paragraphs
-    if was_ocr:
-        saved_paragraphs = paragraphs + [OCR_DISCLAIMER]
 
     # Build viz-compatible data
     key = _method_key(method, args.model)
     paper_data = _build_paper_json(
-        slug, title, saved_paragraphs, method, key, result
+        slug, title, paragraphs, method, key, result, was_ocr
     )
 
     # Merge with existing file if present
@@ -156,8 +152,11 @@ def _build_paper_json(
     method: str,
     key: str,
     result,
+    was_ocr: bool,
 ) -> dict:
     """Build viz-compatible JSON structure for a paper."""
+    if was_ocr:
+        paragraphs = paragraphs + [OCR_DISCLAIMER]
     para_list = [{"index": i, "text": p} for i, p in enumerate(paragraphs)]
 
     comments = []
