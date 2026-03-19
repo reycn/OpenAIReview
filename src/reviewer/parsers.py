@@ -3,6 +3,9 @@
 import base64
 import os
 import re
+import sys
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -17,6 +20,59 @@ def _tag_has_exact_class(tag, *target_classes: str) -> bool:
 def is_url(s: str) -> bool:
     """Check if a string looks like a URL."""
     return s.startswith("http://") or s.startswith("https://")
+
+
+@contextmanager
+def _temporary_cwd(path: Path):
+    """Temporarily switch the process working directory."""
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+def _copy_prefixed_env_file(source: Path, dest: Path, prefix: str) -> None:
+    """Copy only selected env vars from a .env file into a temporary location."""
+    if not source.exists():
+        return
+
+    lines = []
+    for line in source.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(prefix):
+            lines.append(line)
+
+    if any(line.lstrip().startswith(prefix) for line in lines):
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _import_deepseek_processor():
+    """Import deepseek_ocr without exposing it to unrelated project .env keys."""
+    try:
+        import importlib
+
+        for name in list(sys.modules):
+            if name == "deepseek_ocr" or name.startswith("deepseek_ocr."):
+                sys.modules.pop(name, None)
+
+        project_env = Path.cwd() / ".env"
+        with tempfile.TemporaryDirectory(prefix="openaireview-deepseek-import-") as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            _copy_prefixed_env_file(
+                project_env,
+                tmpdir_path / ".env",
+                prefix="DEEPSEEK_OCR_",
+            )
+            with _temporary_cwd(tmpdir_path):
+                module = importlib.import_module("deepseek_ocr")
+        return module.OCRProcessor
+    except ImportError:
+        raise ImportError(
+            "deepseek-ocr-cli not installed. "
+            "Install with: pip install openaireview[deepseek]"
+        )
 
 
 def _truncate_pdf_pages(path: Path, max_pages: int) -> Path:
@@ -246,48 +302,44 @@ def _parse_pdf_deepseek(path: Path, figures_dir: Path | None = None) -> tuple[st
     Install: pip install openaireview[deepseek]
     See also: https://github.com/r-uben/deepseek-ocr-cli
     """
-    try:
-        from deepseek_ocr import OCRProcessor as DeepSeekProcessor
-    except ImportError:
-        raise ImportError(
-            "deepseek-ocr-cli not installed. "
-            "Install with: pip install openaireview[deepseek]"
-        )
+    DeepSeekProcessor = _import_deepseek_processor()
 
     print(f"  Running DeepSeek OCR on {path.name}...")
-    processor = DeepSeekProcessor(
-        extract_images=figures_dir is not None,
-        include_metadata=False,
-        analyze_figures=figures_dir is not None,
-    )
+    with tempfile.TemporaryDirectory(prefix="openaireview-deepseek-output-") as tmpdir:
+        processor = DeepSeekProcessor(
+            output_dir=Path(tmpdir),
+            extract_images=figures_dir is not None,
+            include_metadata=False,
+            analyze_figures=figures_dir is not None,
+        )
 
-    # Ensure the backend model is loaded.
-    # Uses private API — may break if deepseek-ocr-cli changes internals.
-    if not processor._backend.model:
-        processor._backend.load_model()
+        # Ensure the backend model is loaded.
+        # Uses private API — may break if deepseek-ocr-cli changes internals.
+        if not processor._backend.model:
+            processor._backend.load_model()
 
-    result = processor.process_file(path, show_progress=True)
-    markdown = result.output_text
+        result = processor.process_file(path, show_progress=True)
+        markdown = result.output_text
 
-    if not markdown.strip():
-        raise RuntimeError("DeepSeek OCR returned no content")
+        if not markdown.strip():
+            raise RuntimeError("DeepSeek OCR returned no content")
 
-    # Save figures if requested
-    if figures_dir is not None:
-        from deepseek_ocr.utils import sanitize_filename
-        base_name = sanitize_filename(path.stem)
-        src_figures = processor.output_dir / base_name / "figures"
-        if src_figures.exists():
-            import shutil
-            figures_dir.mkdir(parents=True, exist_ok=True)
-            for fig_file in src_figures.iterdir():
-                shutil.copy2(fig_file, figures_dir / fig_file.name)
+        # Save figures if requested
+        if figures_dir is not None:
+            from deepseek_ocr.utils import sanitize_filename
+            base_name = sanitize_filename(path.stem)
+            src_figures = processor.output_dir / base_name / "figures"
+            if src_figures.exists():
+                import shutil
+                figures_dir.mkdir(parents=True, exist_ok=True)
+                for fig_file in src_figures.iterdir():
+                    shutil.copy2(fig_file, figures_dir / fig_file.name)
 
-    n_pages = result.page_count
-    print(f"  DeepSeek OCR: {n_pages} pages extracted in {result.processing_time:.1f}s")
+        n_pages = result.page_count
+        print(f"  DeepSeek OCR: {n_pages} pages extracted in {result.processing_time:.1f}s")
 
-    title = _extract_title_from_markdown(markdown)
-    return title, markdown
+        title = _extract_title_from_markdown(markdown)
+        return title, markdown
 
 
 def _parse_pdf_marker(path: Path) -> tuple[str, str]:

@@ -1,6 +1,8 @@
-"""Unit tests for arXiv HTML parsing."""
+"""Unit tests for parser helpers."""
 
-from reviewer.parsers import parse_arxiv_html
+from pathlib import Path
+
+from reviewer.parsers import _import_deepseek_processor, parse_arxiv_html
 
 
 class _FakeResponse:
@@ -77,3 +79,44 @@ def test_parse_arxiv_html_converts_tables_to_markdown(monkeypatch):
     assert "**Table 1 caption**" in parsed
     assert "| A | B |" in parsed
     assert "| 1 | 2 |" in parsed
+
+
+def test_import_deepseek_processor_filters_unrelated_project_env(monkeypatch, tmp_path):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / ".env").write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=test-key",
+                "REVIEW_PROVIDER=anthropic",
+                "DEEPSEEK_OCR_BACKEND=vllm",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    fake_pkg_root = tmp_path / "site-packages"
+    fake_pkg = fake_pkg_root / "deepseek_ocr"
+    fake_pkg.mkdir(parents=True)
+    (fake_pkg / "__init__.py").write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "_env_text = Path('.env').read_text(encoding='utf-8') if Path('.env').exists() else ''",
+                "if 'OPENAI_API_KEY' in _env_text:",
+                "    raise RuntimeError('unrelated key leaked into deepseek_ocr import')",
+                "class OCRProcessor:",
+                "    seen_env = _env_text",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(project_dir)
+    monkeypatch.syspath_prepend(str(fake_pkg_root))
+
+    processor_cls = _import_deepseek_processor()
+
+    assert processor_cls.seen_env.strip() == "DEEPSEEK_OCR_BACKEND=vllm"
