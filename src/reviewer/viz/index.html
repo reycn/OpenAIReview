@@ -64,6 +64,16 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Top Chrome ── */
+.top-chrome {
+  flex-shrink: 0;
+  background: var(--surface);
 }
 
 /* ── Header ── */
@@ -75,9 +85,13 @@ body {
   display: flex;
   align-items: center;
   gap: 20px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
+}
+.header-main {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-width: 0;
 }
 .header .logo {
   font-size: 15px;
@@ -104,6 +118,7 @@ body {
   position: relative;
   flex: 1;
   max-width: 480px;
+  min-width: 0;
 }
 .paper-select-wrapper select {
   width: 100%;
@@ -132,6 +147,44 @@ body {
   border-right: 4px solid transparent;
   border-top: 5px solid var(--text-secondary);
   pointer-events: none;
+}
+.header-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.header-toggle-btn:hover {
+  color: var(--text);
+  border-color: #d1d5db;
+  background: var(--bg);
+}
+.header-toggle-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+.header-toggle-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+.floating-header-toggle {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 40;
+  box-shadow: var(--shadow-md);
 }
 
 /* ── Method Tabs ── */
@@ -214,7 +267,16 @@ body {
 /* ── Main Layout ── */
 .main {
   display: flex;
-  height: calc(100vh - var(--header-h) - var(--tabs-h) - var(--metrics-h));
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+body.header-collapsed .top-chrome {
+  display: none;
+}
+body.header-collapsed .floating-header-toggle {
+  display: inline-flex;
 }
 
 /* ── Paper Panel ── */
@@ -616,26 +678,36 @@ body {
 
 /* ── Mobile responsive ── */
 @media (max-width: 768px) {
-  body {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
-  }
-
   /* Header: two-row layout */
   .header {
-    flex-wrap: wrap;
     height: auto;
     min-height: var(--header-h);
     padding: 8px 16px;
+    gap: 8px;
+    flex-shrink: 0;
+    align-items: flex-start;
+  }
+  .header-main {
+    flex-wrap: wrap;
     gap: 6px;
     align-content: center;
-    flex-shrink: 0;
   }
   .header .separator { display: none; }
   .legend { display: none; }
-  .paper-select-wrapper { order: 4; max-width: 100%; width: 100%; }
+  .paper-select-wrapper {
+    order: 4;
+    max-width: 100%;
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .header-toggle-btn {
+    padding: 7px 11px;
+    align-self: center;
+  }
+  .floating-header-toggle {
+    top: 10px;
+    right: 12px;
+  }
 
   /* Tabs + metrics: don't shrink */
   .tabs-bar { flex-shrink: 0; padding: 0 12px; }
@@ -684,23 +756,53 @@ body {
 @media (max-width: 480px) {
   .version-badge { display: none; }
   .metrics-bar { font-size: 10px; gap: 8px; }
+  .header-toggle-label { display: none; }
+  .header-toggle-btn { padding: 7px 10px; }
 }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <span class="logo">OpenAIReview</span>
-  <span class="version-badge" id="version-badge"><!-- __VERSION__ --></span>
-  <span class="separator"></span>
-  <div class="paper-select-wrapper">
-    <select id="paper-select"></select>
+<div class="top-chrome" id="top-chrome">
+  <div class="header">
+    <div class="header-main">
+      <span class="logo">OpenAIReview</span>
+      <span class="version-badge" id="version-badge"><!-- __VERSION__ --></span>
+      <span class="separator"></span>
+      <div class="paper-select-wrapper">
+        <select id="paper-select"></select>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <button
+      class="header-toggle-btn"
+      id="header-toggle-btn"
+      type="button"
+      onclick="toggleHeaderVisibility()"
+      aria-expanded="true"
+      aria-label="Hide header"
+      title="Hide header"
+    >
+      <span class="header-toggle-label" id="header-toggle-label">Hide header</span>
+      <span class="header-toggle-icon" id="header-toggle-icon" aria-hidden="true">▴</span>
+    </button>
   </div>
-  <div class="legend" id="legend"></div>
+  <div class="tabs-bar" id="method-tabs"></div>
+  <div class="metrics-bar" id="metrics-bar"></div>
 </div>
-<div class="tabs-bar" id="method-tabs"></div>
-<div class="metrics-bar" id="metrics-bar"></div>
 <div class="main">
+  <button
+    class="header-toggle-btn floating-header-toggle"
+    id="floating-header-toggle-btn"
+    type="button"
+    onclick="toggleHeaderVisibility()"
+    aria-expanded="false"
+    aria-label="Show header"
+    title="Show header"
+  >
+    <span class="header-toggle-label" id="floating-header-toggle-label">Show header</span>
+    <span class="header-toggle-icon" id="floating-header-toggle-icon" aria-hidden="true">▾</span>
+  </button>
   <div class="paper-panel" id="paper-panel"></div>
   <div class="comment-panel" id="comment-panel"></div>
 </div>
@@ -729,8 +831,44 @@ let typesetQueue = Promise.resolve();
 let resolvedIds = new Set();
 let showOnlyOpen = false;
 let mobilePanelActive = 'paper';
+let headerCollapsed = false;
+const HEADER_COLLAPSED_STORAGE_KEY = 'oar_header_collapsed';
 
 function isMobile() { return window.innerWidth <= 768; }
+
+function updateHeaderToggleButton() {
+  const topChrome = document.getElementById('top-chrome');
+  if (!topChrome) return;
+
+  document.body.classList.toggle('header-collapsed', headerCollapsed);
+  topChrome.classList.toggle('is-collapsed', headerCollapsed);
+
+  const actionLabel = headerCollapsed ? 'Show header' : 'Hide header';
+  [
+    ['header-toggle-btn', 'header-toggle-label', 'header-toggle-icon'],
+    ['floating-header-toggle-btn', 'floating-header-toggle-label', 'floating-header-toggle-icon'],
+  ].forEach(([btnId, labelId, iconId]) => {
+    const btn = document.getElementById(btnId);
+    const label = document.getElementById(labelId);
+    const icon = document.getElementById(iconId);
+    if (!btn || !label || !icon) return;
+    btn.setAttribute('aria-expanded', String(!headerCollapsed));
+    btn.setAttribute('aria-label', actionLabel);
+    btn.setAttribute('title', actionLabel);
+    label.textContent = actionLabel;
+    icon.textContent = headerCollapsed ? '▾' : '▴';
+  });
+}
+
+function setHeaderCollapsed(collapsed) {
+  headerCollapsed = collapsed;
+  localStorage.setItem(HEADER_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
+  updateHeaderToggleButton();
+}
+
+function toggleHeaderVisibility() {
+  setHeaderCollapsed(!headerCollapsed);
+}
 
 function switchMobilePanel(panel) {
   mobilePanelActive = panel;
@@ -818,6 +956,9 @@ function renderMarkdownWithMath(text) {
 }
 
 async function init() {
+  headerCollapsed = localStorage.getItem(HEADER_COLLAPSED_STORAGE_KEY) === '1';
+  updateHeaderToggleButton();
+
   // Try /data/index.json (serve mode) then data/index.json (static mode)
   let resp;
   try {

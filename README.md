@@ -66,8 +66,10 @@ First, set an API key for any supported provider:
 export OPENROUTER_API_KEY=your_key_here   # OpenRouter (supports all models)
 # or
 export OPENAI_API_KEY=your_key_here       # OpenAI native
+export OPENAI_BASE_URL=https://api.openai.com/v1   # optional custom endpoint
 # or
 export ANTHROPIC_API_KEY=your_key_here    # Anthropic native
+export ANTHROPIC_BASE_URL=https://api.anthropic.com/v1/   # optional custom endpoint
 # or
 export GEMINI_API_KEY=your_key_here       # Google Gemini native
 # or
@@ -139,7 +141,9 @@ Start a local visualization server to browse review results.
 |---|---|---|
 | `OPENROUTER_API_KEY` | | OpenRouter API key (supports all models) |
 | `OPENAI_API_KEY` | | OpenAI native API key |
+| `OPENAI_BASE_URL` | OpenAI SDK default | Optional custom base URL for OpenAI-compatible endpoints |
 | `ANTHROPIC_API_KEY` | | Anthropic native API key |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1/` | Optional custom base URL for Anthropic-compatible endpoints |
 | `GEMINI_API_KEY` | | Google Gemini native API key |
 | `MISTRAL_API_KEY` | | Mistral API key (also used for Mistral OCR) |
 | `MODEL` | `anthropic/claude-opus-4-6` | Default model |

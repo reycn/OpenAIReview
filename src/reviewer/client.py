@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+from dataclasses import dataclass
 
 from openai import OpenAI
 
@@ -12,13 +13,29 @@ try:
 except ImportError:
     pass
 
-# Provider configs: (env_var, base_url or None for default, model_prefix_to_strip)
+@dataclass(frozen=True)
+class ProviderConfig:
+    api_key_env: str
+    default_base_url: str | None
+    model_prefix: str | None
+    base_url_env: str | None = None
+
+
 PROVIDERS = {
-    "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", None),
-    "openai": ("OPENAI_API_KEY", None, None),
-    "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1/", "anthropic/"),
-    "gemini": ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/", "google/"),
-    "mistral": ("MISTRAL_API_KEY", "https://api.mistral.ai/v1", "mistralai/"),
+    "openrouter": ProviderConfig("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1", None),
+    "openai": ProviderConfig("OPENAI_API_KEY", None, None, "OPENAI_BASE_URL"),
+    "anthropic": ProviderConfig(
+        "ANTHROPIC_API_KEY",
+        "https://api.anthropic.com/v1/",
+        "anthropic/",
+        "ANTHROPIC_BASE_URL",
+    ),
+    "gemini": ProviderConfig(
+        "GEMINI_API_KEY",
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "google/",
+    ),
+    "mistral": ProviderConfig("MISTRAL_API_KEY", "https://api.mistral.ai/v1", "mistralai/"),
 }
 
 # Auto-detection priority order
@@ -38,12 +55,35 @@ _provider_announced = False
 
 def _make_client(name: str) -> tuple[OpenAI, str, str | None]:
     """Build an OpenAI client for a known, available provider."""
-    env_var, base_url, prefix = PROVIDERS[name]
-    api_key = os.environ.get(env_var)
-    kwargs = {"api_key": api_key}
+    config = PROVIDERS[name]
+    return OpenAI(**_build_client_kwargs(name)), name, config.model_prefix
+
+
+def _resolve_base_url(name: str) -> str | None:
+    """Resolve provider base URL, honoring env overrides when configured."""
+    config = PROVIDERS[name]
+    if config.base_url_env:
+        custom_base_url = os.environ.get(config.base_url_env)
+        if custom_base_url:
+            return custom_base_url.strip()
+    return config.default_base_url
+
+
+def _uses_custom_base_url(name: str) -> bool:
+    """Return whether a provider is routed through a non-default endpoint."""
+    config = PROVIDERS[name]
+    resolved = _resolve_base_url(name)
+    return bool(config.base_url_env and resolved and resolved != config.default_base_url)
+
+
+def _build_client_kwargs(name: str) -> dict:
+    """Build OpenAI SDK kwargs for a provider."""
+    config = PROVIDERS[name]
+    kwargs = {"api_key": os.environ.get(config.api_key_env)}
+    base_url = _resolve_base_url(name)
     if base_url:
         kwargs["base_url"] = base_url
-    return OpenAI(**kwargs), name, prefix
+    return kwargs
 
 
 def get_client(provider: str | None = None, model: str | None = None) -> tuple[OpenAI, str, str | None]:
@@ -75,28 +115,25 @@ def get_client(provider: str | None = None, model: str | None = None) -> tuple[O
                 file=sys.stderr,
             )
             sys.exit(1)
-        env_var, base_url, prefix = PROVIDERS[requested]
-        api_key = os.environ.get(env_var)
+        config = PROVIDERS[requested]
+        api_key = os.environ.get(config.api_key_env)
         if not api_key:
             print(
-                f"Error: Provider '{requested}' selected but {env_var} is not set.\n"
+                f"Error: Provider '{requested}' selected but {config.api_key_env} is not set.\n"
                 f"Set it in your environment or .env file.",
                 file=sys.stderr,
             )
             sys.exit(1)
-        kwargs = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
         display = requested.replace("_", " ").title()
         _announce(f"Using {display} API")
-        return OpenAI(**kwargs), requested, prefix
+        return OpenAI(**_build_client_kwargs(requested)), requested, config.model_prefix
 
     # Model-aware auto-detect: if model has a vendor prefix, try matching provider first
     if model:
         for prefix, prov_name in MODEL_VENDOR_TO_PROVIDER.items():
             if model.startswith(prefix):
-                env_var, _, _ = PROVIDERS[prov_name]
-                if os.environ.get(env_var):
+                config = PROVIDERS[prov_name]
+                if os.environ.get(config.api_key_env):
                     display = prov_name.replace("_", " ").title()
                     _announce(f"Using {display} API (matched model prefix '{prefix}')")
                     return _make_client(prov_name)
@@ -104,9 +141,9 @@ def get_client(provider: str | None = None, model: str | None = None) -> tuple[O
 
     # Fallback: try each provider in priority order
     for name in PROVIDER_PRIORITY:
-        env_var, _, _ = PROVIDERS[name]
-        if os.environ.get(env_var):
-            display = env_var.replace("_API_KEY", "").replace("_", " ").title()
+        config = PROVIDERS[name]
+        if os.environ.get(config.api_key_env):
+            display = config.api_key_env.replace("_API_KEY", "").replace("_", " ").title()
             _announce(f"Using {display} API (auto-detected)")
             return _make_client(name)
 
@@ -145,6 +182,8 @@ def _apply_reasoning(kwargs: dict, provider: str, reasoning_effort: str, max_tok
     if provider == "openrouter":
         kwargs["extra_body"] = {"reasoning": {"max_tokens": budget}}
     elif provider == "anthropic":
+        if _uses_custom_base_url(provider):
+            return
         kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": budget}}
     elif provider == "openai":
         # OpenAI uses reasoning_effort directly as a string
@@ -152,6 +191,19 @@ def _apply_reasoning(kwargs: dict, provider: str, reasoning_effort: str, max_tok
     elif provider == "gemini":
         kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": budget}}
     # Mistral: no reasoning token support as of 2026-03
+
+
+def _apply_output_token_limit(kwargs: dict, provider: str, max_tokens: int) -> None:
+    """Add the provider-specific output token limit parameter.
+
+    Newer OpenAI chat models reject `max_tokens` and require
+    `max_completion_tokens` instead, but many custom OpenAI-compatible
+    endpoints still expect the older `max_tokens` field.
+    """
+    if provider == "openai" and not _uses_custom_base_url(provider):
+        kwargs["max_completion_tokens"] = max_tokens
+    else:
+        kwargs["max_tokens"] = max_tokens
 
 
 def chat(
@@ -192,8 +244,8 @@ def chat(
                 kwargs = dict(
                     model=api_model,
                     messages=messages,
-                    max_tokens=current_max_tokens,
                 )
+                _apply_output_token_limit(kwargs, resolved_provider, current_max_tokens)
                 if temperature is not None:
                     kwargs["temperature"] = temperature
                 if reasoning_effort is not None and reasoning_effort != "none":
